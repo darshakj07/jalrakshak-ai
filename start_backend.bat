@@ -1,10 +1,30 @@
 @echo off
+title JalRakshak AI - Backend API (FastAPI)
 echo ============================================================
-echo  JalRakshak AI 2.0 - Starting Backend
+echo   JalRakshak AI 2.0 - Starting Backend (FastAPI)
 echo ============================================================
 echo.
-echo Backend: http://localhost:8001
-echo API Docs: http://localhost:8001/docs
+
+cd /d "%~dp0"
+
+:: Activate virtual environment if present
+if exist "%~dp0.venv\Scripts\activate.bat" (
+    call "%~dp0.venv\Scripts\activate.bat"
+) else if exist "%~dp0backend\.venv\Scripts\activate.bat" (
+    call "%~dp0backend\.venv\Scripts\activate.bat"
+)
+
+:: Ensure backend directory
+cd /d "%~dp0backend"
+
+echo Backend API:  http://localhost:8001
+echo Swagger Docs: http://localhost:8001/docs
+echo Health Check: http://localhost:8001/api/v1/health
 echo.
-cd /d %~dp0
-.venv\Scripts\python.exe -m uvicorn main:app --reload --host 0.0.0.0 --port 8001 --app-dir backend
+
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8001
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Backend server stopped with an error.
+    pause
+)
