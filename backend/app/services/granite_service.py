@@ -6,6 +6,7 @@ API key is NEVER logged, returned, or exposed.
 import os
 import httpx
 import logging
+import time
 from typing import Optional
 from app.core.config import settings
 
@@ -62,54 +63,63 @@ def generate_response(
     if settings.effective_demo_mode:
         return _demo_response(prompt)
 
-    try:
-        token = _get_iam_token()
-        gen_params = {**DEFAULT_PARAMS, **(params or {})}
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            token = _get_iam_token()
+            gen_params = {**DEFAULT_PARAMS, **(params or {})}
 
-        full_prompt = prompt
-        if system_prompt:
-            full_prompt = f"<|system|>\n{system_prompt}\n<|user|>\n{prompt}\n<|assistant|>\n"
+            full_prompt = prompt
+            if system_prompt:
+                full_prompt = f"<|system|>\n{system_prompt}\n<|user|>\n{prompt}\n<|assistant|>\n"
 
-        payload = {
-            "model_id": settings.watsonx_model_id,
-            "input": full_prompt,
-            "parameters": gen_params,
-            "project_id": settings.watsonx_project_id,
-        }
+            payload = {
+                "model_id": settings.watsonx_model_id,
+                "input": full_prompt,
+                "parameters": gen_params,
+                "project_id": settings.watsonx_project_id,
+            }
 
-        url = f"{settings.watsonx_ai_url}/ml/v1/text/generation?version=2023-05-29"
-        resp = httpx.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        generated_text = data.get("results", [{}])[0].get("generated_text", "").strip()
-        return {
-            "text": generated_text,
-            "model": settings.watsonx_model_id,
-            "demo_mode": False,
-            "error": None,
-        }
+            url = f"{settings.watsonx_ai_url}/ml/v1/text/generation?version=2023-05-29"
+            resp = httpx.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=60,
+            )
+            if resp.status_code == 429 and attempt < max_retries:
+                logger.warning("Granite 429 rate limit hit, retrying in %ds (attempt %d/%d)...", attempt * 2, attempt, max_retries)
+                time.sleep(attempt * 2)
+                continue
 
-    except ValueError as e:
-        logger.warning("Granite auth error (not exposing key): %s", type(e).__name__)
-        return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": "Authentication error - check API key"}
-    except httpx.TimeoutException:
-        logger.warning("Granite request timed out")
-        return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": "Request timed out"}
-    except httpx.HTTPStatusError as e:
-        logger.warning("Granite HTTP error: %s", e.response.status_code)
-        return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": f"API error: {e.response.status_code}"}
-    except Exception as e:
-        logger.warning("Granite error: %s", type(e).__name__)
-        return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": f"Service error: {type(e).__name__}"}
+            resp.raise_for_status()
+            data = resp.json()
+            generated_text = data.get("results", [{}])[0].get("generated_text", "").strip()
+            return {
+                "text": generated_text,
+                "model": settings.watsonx_model_id,
+                "demo_mode": False,
+                "error": None,
+            }
+
+        except ValueError as e:
+            logger.warning("Granite auth error (not exposing key): %s", type(e).__name__)
+            return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": "Authentication error - check API key"}
+        except httpx.TimeoutException:
+            logger.warning("Granite request timed out")
+            return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": "Request timed out"}
+        except httpx.HTTPStatusError as e:
+            logger.warning("Granite HTTP error: %s", e.response.status_code)
+            return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": f"API error: {e.response.status_code}"}
+        except Exception as e:
+            logger.warning("Granite error: %s", type(e).__name__)
+            return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": f"Service error: {type(e).__name__}"}
+
+    return {"text": _fallback_text(prompt), "model": settings.watsonx_model_id, "demo_mode": True, "error": "Rate limit exceeded"}
 
 
 def generate_explanation(context: dict) -> dict:

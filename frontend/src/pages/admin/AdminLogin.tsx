@@ -836,7 +836,7 @@ export default function AdminLogin() {
               style={{ color: '#60a5fa', flexShrink: 0, marginTop: 1 }}
             />
             <span>
-              Protected administrator area. Default credentials: <strong>admin</strong> / <strong>admin@123</strong> (or <strong>jalrakshak2024</strong>).
+              Protected administrator area. Credentials: <strong>admin</strong> / <strong>admin123</strong>.
             </span>
           </div>
 
